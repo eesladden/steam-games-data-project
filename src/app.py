@@ -8,6 +8,14 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from scipy.stats import chi2_contingency
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score,
+    f1_score, roc_auc_score, confusion_matrix
+)
 
 # Sets LLM model and temperature
 llm = ChatGoogleGenerativeAI(model = "gemini-3.5-flash-lite", temperature = 0.1)
@@ -303,3 +311,60 @@ else:
     )
 
 st.markdown(interpretation)
+
+st.header("Machine Learning")
+st.subheader("Logistic Regression & Random Forest Classifier")
+
+# Work with a copy of the hypotheses dataset
+ml_data = h_data.copy()
+
+st.markdown("#### 1. Data Preperation and Feature Selection")
+st.write(
+    """
+    The feature matric `X` and target variable `y` are isolated.
+    To prevent data leakage and dimensionality issues, non-numeric identifier columns, text names, date strings, direct target representations, and post-release metrics like `Positive_Ratio` or `Peak CCU` are dropped if they compromise pre-launch prediction goals.
+    For this analysis, only numeric/boolean features are selected.
+    """
+)
+
+# Drop known leakages, indentifiers, and non-numeric columns that aren't encoded
+drop_cols = ['AppID', 'Name', 'Release date', 'Estimated owners', 'Success_Label', 'Success', 'Primary_Genre', 'Peak CCU', 'Positive_Ratio', 'Metacritic score']
+feature_cols = [col for col in ml_data.columns if col not in drop_cols and ml_data[col].dtype in ['int64', 'float64', 'bool']]
+
+X = ml_data[feature_cols].select_dtypes(include=[np.number, 'bool']).astype(float)
+y = ml_data['Success'].astype(int)
+
+st.markdown(f"**Features selected for modeling:** {X.shape[1]} columns")
+st.markdown(f"**Target shape:** {y.shape}")
+
+# Train/Test Split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+
+st.markdown("#### 2. Basic Baseline: Logistic Regression")
+st.markdown("Logistic regression requires feature scaling for optimal gradient convergence and regularization performance.")
+
+# Scale data for Logistic Regression
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+lr_model = LogisticRegression(max_iter=1000, random_state=42)
+lr_model.fit(X_train_scaled, y_train)
+
+lr_preds = lr_model.predict(X_test_scaled)
+lr_probs = lr_model.predict_proba(X_test_scaled)[:, 1]
+
+lr_acc = accuracy_score(y_test, lr_preds)
+lr_prec = precision_score(y_test, lr_preds, zero_division=0)
+lr_rec = recall_score(y_test, lr_preds, zero_division=0)
+lr_f1 = f1_score(y_test, lr_preds, zero_division=0)
+lr_auc = roc_auc_score(y_test, lr_probs)
+lr_cm = confusion_matrix(y_test, lr_preds)
+
+st.markdown("##### Logistic Regression Results")
+st.markdown(f"- **Accuracy:** {lr_acc:.4f}")
+st.markdown(f"- **Precision:** {lr_prec:.4f}")
+st.markdown(f"- **Recall:** {lr_rec:.4f}")
+st.markdown(f"- **F1-Score:** {lr_f1:.4f}")
+st.markdown(f"- **ROC-AUC:** {lr_auc:.4f}")
+st.markdown(f"- **Confusion Matrix:**\n```\n{lr_cm}\n```")
