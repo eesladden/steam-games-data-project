@@ -312,7 +312,7 @@ else:
 
 st.markdown(interpretation)
 
-st.header("Machine Learning")
+st.header("Machine Learning: Predicting Game Success")
 st.subheader("Logistic Regression & Random Forest Classifier")
 
 # Work with a copy of the hypotheses dataset
@@ -368,3 +368,26 @@ st.markdown(f"- **Recall:** {lr_rec:.4f}")
 st.markdown(f"- **F1-Score:** {lr_f1:.4f}")
 st.markdown(f"- **ROC-AUC:** {lr_auc:.4f}")
 st.markdown(f"- **Confusion Matrix:**\n```\n{lr_cm}\n```")
+
+st.markdown("#### 3. Primary Model: Random Forest Classifier")
+
+rf_model = RandomForestClassifier(n_estimators=100, max_depth=20, random_state=42, class_weight='balanced', n_jobs=-1)
+rf_model.fit(X_train, y_train)
+
+rf_preds = rf_model.predict(X_test)
+rf_probs = rf_model.predict_proba(X_test)[:, 1]
+
+rf_acc = accuracy_score(y_test, rf_preds)
+rf_prec = precision_score(y_test, rf_preds, zero_division=0)
+rf_rec = recall_score(y_test, rf_preds, zero_division=0)
+rf_f1 = f1_score(y_test, rf_preds, zero_division=0)
+rf_auc = roc_auc_score(y_test, rf_probs)
+rf_cm = confusion_matrix(y_test, rf_preds)
+
+st.markdown("##### Random Forest Results")
+st.markdown(f"- **Accuracy:** {rf_acc:.4f}")
+st.markdown(f"- **Precision:** {rf_prec:.4f}")
+st.markdown(f"- **Recall:** {rf_rec:.4f}")
+st.markdown(f"- **F1-Score:** {rf_f1:.4f}")
+st.markdown(f"- **ROC-AUC:** {rf_auc:.4f}")
+st.markdown(f"- **Confusion Matrix:**\n```\n{rf_cm}\n```")
