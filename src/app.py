@@ -115,7 +115,21 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
         df = df.drop_duplicates(subset=["AppID"])
     # Drop exact duplicates if there are any
     df = df.drop_duplicates()
-
+    # Parse string lists for tags and genres into dummy variables
+    if "Genres" in df.columns:
+        genres_dummies = df["Genres"].str.get_dummies(sep=",")
+        genres_dummies = genres_dummies.add_prefix("genre_")
+        df = pd.concat([df, genres_dummies], axis=1)
+    if "Tags" in df.columns:
+            tags_dummies = df["Tags"].str.get_dummies(sep=",")
+            tags_dummies = tags_dummies.add_prefix("tags_")
+            df = pd.concat([df, tags_dummies], axis=1)
+    # Map estimated owner ranges to their midpoints, lower bounds, and upper bounds to make them usable numbers
+    if "Estimated owners" in df.columns:
+        bounds = df['Estimated owners'].str.replace(',', '').str.split(' - ', expand=True).astype(float)
+        df['min_owners'] = bounds[0]
+        df['max_owners'] = bounds[1]
+        df['midpoint_owners'] = (bounds[0] + bounds[1]) / 2
     return df
 
 cleaned_data = clean_data(raw_data)
@@ -123,7 +137,7 @@ st.subheader("Cleaned Dataset Overview")
 st.dataframe(cleaned_data.head())
 
 st.subheader("Data Cleaning")
-st.write("To clean the dataset, I first dropped columns with either mostly or completely missing values. Then I removed entries with genres that were non-game related, like Utilities, Software, Animation & Modeling, Design & Illustration, Web Publishing, and Video Production. The next step was handling Price outliers, starting with dropping all the free-to-play games. Then I used log-IQR to find the lower and upper bounds and remove remaining outliers. I used the absence of Peak CCU and lack of reviews to prune out dead or unplayed games. Following that, I dealt with all the values that were heavily right-skewed, mainly due to the blockbuster hits with extremely high positive reviews, playtime, recommendations, etc. I used log transformtion so the outliers didn't dominate my weights. I replaced Metacritic scores with a score of 0 with NaN because there are no games on Metacritic with a score of 0, which means they are most likely just unrated and not true zeros. Lastly, I dropped rows with more that 50% missing values and dropped duplicates using the Name and AppID together to get rid of repackaged games with the same name.")
+st.write("To clean the dataset, I first dropped columns with either mostly or completely missing values. Then I removed entries with genres that were non-game related, like Utilities, Software, Animation & Modeling, Design & Illustration, Web Publishing, and Video Production. The next step was handling Price outliers, starting with dropping all the free-to-play games. Then I used log-IQR to find the lower and upper bounds and remove remaining outliers. I used the absence of Peak CCU and lack of reviews to prune out dead or unplayed games. Following that, I dealt with all the values that were heavily right-skewed, mainly due to the blockbuster hits with extremely high positive reviews, playtime, recommendations, etc. I used log transformtion so the outliers didn't dominate my weights. I replaced Metacritic scores with a score of 0 with NaN because there are no games on Metacritic with a score of 0, which means they are most likely just unrated and not true zeros. I dropped rows with more that 50% missing values and dropped duplicates using the Name and AppID together to get rid of repackaged games with the same name. Lastly, I parsed the string lists for tags and genres into dummy variables, and mapped the estimated owners range to usable midpoint, max, and min numerical values.")
 
 # A summary of the cleaned dataset
 clean_summary = f"""
@@ -150,7 +164,7 @@ if st.session_state.overview is None:
         You are an experienced data analyst. Perform a dataset overview of my now cleaned dataset, including:
         1. A dataset overview
         2. The data quality & remaining anomalies (if any)
-        3. Recommended visualizations: specify exactly what to plot, and why.
+        3. Recommended visualizations: specify exactly what to plot (all exact column names), and why.
 
         For recommended visualizations, include at least a correlation heatmap across all numeric attributes, plus histograms, box plots, scatter plots and a release-year trend.
 
