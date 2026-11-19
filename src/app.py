@@ -164,7 +164,7 @@ st.write(
     The string lists for tags and genres were parsed into dummy variables.
     The estimated owners ranges were mapped to usable midpoint, max, and min numerical values.
     """
-    )
+)
 
 # A summary of the cleaned dataset
 clean_summary = f"""
@@ -218,7 +218,7 @@ st.write(
     The AI has pointed out that there are still a few anomalies after cleaning, but they shouldn't affect my analysis moving forward. 
     The recommended plots are similar to the ones from the exploratory analysis, which will be used later in the report.
     """
-    )
+)
 
 st.header("Statistical Analysis & Hypothesis Testing")
 
@@ -391,3 +391,50 @@ st.markdown(f"- **Recall:** {rf_rec:.4f}")
 st.markdown(f"- **F1-Score:** {rf_f1:.4f}")
 st.markdown(f"- **ROC-AUC:** {rf_auc:.4f}")
 st.markdown(f"- **Confusion Matrix:**\n```\n{rf_cm}\n```")
+
+# AI interpretation of machine learning metrics
+if "machine" not in st.session_state:
+    st.session_state.machine = None
+
+if st.session_state.machine is None:
+    prompt = ChatPromptTemplate.from_template(
+        f"""
+        You are a senior data scientist with extensive machine learning knowledge. You used a random forest classifier to predict the success of video games using binary (1 for Positive, 0 for not). Logistic regression as the basic baseline.:
+
+        Logistic Regression metrics:
+        1. Accuracy: {lr_acc:.4f}
+        2. Precision: {lr_prec:.4f}
+        3. Recall: {lr_rec:.4f}
+        4. F1-Score: {lr_f1:.4f}
+        5. ROC-AUC: {lr_auc:.4f}
+        6. Confusion Matrix: {lr_cm}
+        Random Forest Classifier metrics:
+        1. Accuracy: {rf_acc:.4f}
+        2. Precision: {rf_prec:.4f}
+        3. Recall: {rf_rec:.4f}
+        4. F1-Score: {rf_f1:.4f}
+        5. ROC-AUC: {rf_auc:.4f}
+        6. Confusion Matrix: {rf_cm}
+
+        Write out an interpretation of your results.
+        """
+    )
+
+    chain = prompt | llm | StrOutputParser()
+
+    response = chain.invoke({})
+    st.session_state.machine = response
+
+st.subheader("AI-generated Machine Learning Results Interpretation")
+st.write(st.session_state.machine)
+st.subheader("Evaluation of AI-generated Machine Learning Results Interpretation")
+st.write(
+    """
+    As the AI assessed, the accuracy of the Random Forest is about 4 percent higher than the Logistic Regession. 
+    However, the total number of positive cases is a little over 1000 less than the number of negative cases, so accuracy isn't everything.
+    The confusion matrix breaks down the numbers, demonstrating that while the Logistic Regression model is good at correctly predicting negatives, the Random Forest Classifier catchs the vast majority of successful games.
+    Though the Random Forest is less precise, predicting more false positives, it has extremely high recall, which makes it the more balanced model.
+    While both the models have high ROC-AUC scores, the Random Forest ranks higher.
+    The AI recommended that overall, the Ransom Forest Classifier is the better model, but it might depend on what they are being used for.
+    """
+)
