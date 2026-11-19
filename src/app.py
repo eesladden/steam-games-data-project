@@ -7,6 +7,7 @@ import seaborn as sns
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from scipy.stats import chi2_contingency
 
 # Sets LLM model and temperature
 llm = ChatGoogleGenerativeAI(model = "gemini-3.5-flash-lite", temperature = 0.1)
@@ -72,7 +73,13 @@ st.subheader("AI-generated Exploratory Analysis")
 st.write(st.session_state.analysis)
 
 st.subheader("Evaluation of AI-generated Exploratory Analysis")
-st.write("The AI accurately found columns with mostly missing values, but its thoughts on outliers may not be accurate because it cannot view the entire dataset. I must evaluate the data myself to observe skewness. The potential key hypotheses all deserve some exploration, as well as all the recommended figures for visualization.")
+st.write(
+    """
+    The AI accurately observed columns with extremely high missing rates, but its thoughts on outliers and skewednessnmay not be accurate because it cannot view the entire dataset. 
+    I must evaluate the data myself to observe what needs either transformation or removal.
+    The potential key hypotheses all deserve some exploration, as well as all the recommended figures for visualization.
+    """
+)
 
 # Clean and cache data
 @st.cache_data
@@ -137,7 +144,19 @@ st.subheader("Cleaned Dataset Overview")
 st.dataframe(cleaned_data.head())
 
 st.subheader("Data Cleaning")
-st.write("To clean the dataset, I first dropped columns with either mostly or completely missing values. Then I removed entries with genres that were non-game related, like Utilities, Software, Animation & Modeling, Design & Illustration, Web Publishing, and Video Production. The next step was handling Price outliers, starting with dropping all the free-to-play games. Then I used log-IQR to find the lower and upper bounds and remove remaining outliers. I used the absence of Peak CCU and lack of reviews to prune out dead or unplayed games. Following that, I dealt with all the values that were heavily right-skewed, mainly due to the blockbuster hits with extremely high positive reviews, playtime, recommendations, etc. I used log transformtion so the outliers didn't dominate my weights. I replaced Metacritic scores with a score of 0 with NaN because there are no games on Metacritic with a score of 0, which means they are most likely just unrated and not true zeros. I dropped rows with more that 50% missing values and dropped duplicates using the Name and AppID together to get rid of repackaged games with the same name. Lastly, I parsed the string lists for tags and genres into dummy variables, and mapped the estimated owners range to usable midpoint, max, and min numerical values.")
+st.write(
+    """
+    To clean the dataset, columns with mostly or completely missing values were dropped. 
+    Entries with genres that are non-game related, like Utilities, Software, Animation & Modeling, Design & Illustration, Web Publishing, and Video Production, were removed. 
+    Price outliers were handled using the log-IQR method after dropping all the free-to-play games.
+    The absence of Peak CCU or a lack of reviews was utilized to prune out dead or unplayed games. 
+    All the values that were heavily right-skewed, such as Peak CCU, Positive, Recommendations, DLC count, Achievements, Average playtime forever, were handled vis log transformtion so the outliers didn't dominate any weights. 
+    Metacritic scores of 0 were replaced with NaN because they are most likely just unrated games and not true zeros. 
+    Rows with more that 50% missing values and duplicates were dropped.
+    The string lists for tags and genres were parsed into dummy variables.
+    The estimated owners ranges were mapped to usable midpoint, max, and min numerical values.
+    """
+    )
 
 # A summary of the cleaned dataset
 clean_summary = f"""
@@ -185,6 +204,102 @@ st.subheader("AI-generated Clean Dataset Overview")
 st.write(st.session_state.overview)
 
 st.subheader("Evaluation of AI-generated Clean Dataset Overview")
-st.write("Cleaning the data appears to have significatly cut down the number of entries I have to analyze now. I agree that there are still a few anomalies after cleaning, but they shouldn't affect my analysis moving forward. If they do, I'll adjust accordingly. The recommend plots are similar to the ones from the exploratory analysis, and I will use them all.")
+st.write(
+    """
+    Cleaning the data appears to have significatly cut down the number of entries left for analysis. 
+    The AI has pointed out that there are still a few anomalies after cleaning, but they shouldn't affect my analysis moving forward. 
+    The recommended plots are similar to the ones from the exploratory analysis, which will be used later in the report.
+    """
+    )
 
 st.header("Statistical Analysis & Hypothesis Testing")
+
+st.subheader("Hypothesis Testing: Genre vs. Game Success")
+
+# Work with a copy of the dataset
+h_data = cleaned_data.copy()
+
+# State the null and alternative hypotheses
+st.markdown("#### 1. Null and Alternative Hypotheses")
+st.markdown(
+    """
+    - **Null Hypothesis ($H_0$):** Genre does not affect a game's overall chance at success (genre and success are independent).
+    - **Alternative Hypothesis ($H_1$):** Genre affects a game's overall chance at success (genre and success are dependent).
+    - **Significance Level ($α$):** 0.05
+    """
+)
+
+# Explain why the test is appropriate
+st.markdown("#### 2. Appropriateness of the Chi-Square Test")
+st.markdown(
+    """
+    The **Chi-Square Test of Independence** is appropriate here because it is analyzing the relationship between two *categorical variables*:
+    1. **Genre:** Categorical data (represented via tag columns or primary genres)
+    2. **Success:** A binary categorical variable derived from the success criteria (>80% positive reviews and high estimated midpoint owners)
+
+    The Chi-Square test evaluates whether the observed frequencies in each category differ significantly from the expected frequencies under the assumption of independence.
+    """
+)
+
+# Data preparation & feature engineering
+# Define success
+if "Positive" in h_data.columns and "Negative" in h_data.columns:
+    total_reviews = h_data['Positive'] + h_data['Negative']
+    h_data['Positive_Ratio'] = np.where(
+        total_reviews > 0, h_data['Positive'] / total_reviews, 0
+    )
+    h_data['Success'] =(h_data['Positive_Ratio'] > 0.8) & (
+        h_data['midpoint_owners']
+        > h_data['midpoint_owners'].median()
+    )
+
+h_data['Success_Label'] = h_data['Success'].map(
+    {True: 'Successful', False: 'Not Successful'}
+)
+# Extract a primary genre column from avaliable tag/genre columns if 'Genre' isn't singular
+genre_cols = [col for col in h_data.columns if col.startswith("genre_")]
+if not genre_cols:
+    genre_cols = [col for col in h_data.columns if col.startswith("tags_")]
+# Select the top 5 most common genre/tag columns to create a categorical 'Primary Genre' feature
+def get_primary_genre(row):
+    for col in genre_cols[:10]:
+        if row[col] == 1:
+            return col.replace("genre_", "").replace("tags_", "")
+    return "Other"
+
+h_data["Primary_Genre"] = h_data.apply(get_primary_genre, axis=1)
+
+# Create a contingency table
+contingency_table = pd.crosstab(
+    h_data["Primary_Genre"], h_data["Success_Label"]
+)
+
+# Perform the Chi-Square Test
+chi2_stat, p_val, dof, ex = chi2_contingency(contingency_table)
+
+# Report the test statistic and p-value
+st.markdown("#### 3. Test Results")
+st.markdown(
+    f"""
+    - **Chi-Square Statistic ($\chi^2$):** `{chi2_stat:.4f}`
+    - **Degrees of Freedom (dof):** `{dof}`
+    - **p-value:** `{p_val:.4e}`
+    """
+)
+
+# Interpret the result in context
+st.markdown("#### 4. Interpretation")
+if p_val < 0.05:
+    interpretation = (
+        f"Since the p-value ({p_val:.4e}) is less than the significance level ($α = 0.05$), "
+        "we reject the null hypothesis ($H_0$). There is statistically significant evidence to conclude "
+        "that a game's genre affects its overall chance at success."
+    )
+else:
+    interpretation = (
+        f"Since the p-value ({p_val:.4e}) is greater than or equal to the significance level ($α = 0.05$), "
+        "we fail to reject the null hypothesis ($H_0$). There is insufficient evidence to conclude "
+        "that a game's genre affects its overall chance at success."
+    )
+
+st.markdown(interpretation)
