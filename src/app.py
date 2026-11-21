@@ -730,3 +730,5 @@ st.write(
     Gaming is an experience and developers have to take every possible aspect into consideration when creating new games.
     """
 )
+st.markdown("[Github Repository](https://github.com/eesladden/steam-games-data-project)")
+st.write("https://github.com/eesladden/steam-games-data-project")
