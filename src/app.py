@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 import seaborn as sns
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -86,6 +87,7 @@ st.write(
     The AI accurately observed columns with extremely high missing rates, but its thoughts on outliers and skewednessnmay not be accurate because it cannot view the entire dataset. 
     I must evaluate the data myself to observe what needs either transformation or removal.
     The potential key hypotheses all deserve some exploration, as well as all the recommended figures for visualization.
+    I have chosen to do further research before committing to anything.
     """
 )
 
@@ -217,6 +219,7 @@ st.write(
     Cleaning the data appears to have significatly cut down the number of entries left for analysis. 
     The AI has pointed out that there are still a few anomalies after cleaning, but they shouldn't affect my analysis moving forward. 
     The recommended plots are similar to the ones from the exploratory analysis, which will be used later in the report.
+    I have chosen to use the AI recommendations for visualization to further my analysis.
     """
 )
 
@@ -435,6 +438,259 @@ st.write(
     The confusion matrix breaks down the numbers, demonstrating that while the Logistic Regression model is good at correctly predicting negatives, the Random Forest Classifier catchs the vast majority of successful games.
     Though the Random Forest is less precise, predicting more false positives, it has extremely high recall, which makes it the more balanced model.
     While both the models have high ROC-AUC scores, the Random Forest ranks higher.
-    The AI recommended that overall, the Ransom Forest Classifier is the better model, but it might depend on what they are being used for.
+    I agree that overall, the Random Forest Classifier is the better model, but that it might depend on what the models are being used for.
+    """
+)
+
+st.header("Visualizations")
+
+# Set seaborn aesthetic
+sns.set_theme(style="whitegrid")
+
+# Ensure cleaned_data is available
+if 'cleaned_data' in locals() or 'cleaned_data' in globals():
+    df = cleaned_data.copy()
+else:
+    st.error("The `cleaned_data` DataFrame is not found in the environment.")
+    st.stop()
+
+# ==========================================
+# A. Correlation Heatmap across all Numeric Attributes
+# ==========================================
+st.subheader("A. Correlation Heatmap")
+st.markdown(
+    """
+    **Interpretation:** This heatmap shows the linear relationships between important numerical attributes.
+    Noticeable strong correlations usually appear between review metrics (`Positive`, `Negative`, `Recommendations`) and ownership estimates (`min_owners`, `max_owners`, `midpoint_owners`), indicating that highly reviewed games tend to reach wider audiences.
+    """
+)
+corr_columns = [
+    'Price', 'Peak CCU', 'DLC count', 'Achievements', 
+    'Positive', 'Negative', 'Recommendations', 
+    'Average playtime forever', 'Median playtime forever', 
+    'min_owners', 'max_owners', 'midpoint_owners'
+]
+
+# Check existing columns
+available_corr_cols = [col for col in corr_columns if col in df.columns]
+
+if len(available_corr_cols) > 1:
+    fig, ax = plt.subplots(figsize=(10, 8))
+    corr_matrix = df[available_corr_cols].corr()
+    sns.heatmap(corr_matrix, annot=True, fmt=".2f", cmap='coolwarm', ax=ax, cbar_kws={'label': 'Pearson Correlation'})
+    plt.title("Correlation Matrix Heatmap", fontsize=14)
+    plt.xticks(rotation=45, ha='right')
+    plt.yticks(rotation=0)
+    plt.tight_layout()
+    st.pyplot(fig)
+    plt.close(fig)
+else:
+    st.warning("Insufficient columns available for the correlation heatmap.")
+
+
+# ==========================================
+# B. Histograms (Distribution Analysis)
+# ==========================================
+st.subheader("B. Histograms (Distribution Analysis with Logarithmic Scaling)")
+st.markdown(
+    """
+    **Interpretation:** Game metrics on Steam tend to show severe right-skewness.
+    By applying logarithmic scaling, the trends of the log-transformed values for metrics like `Price`, `Peak CCU`, `midpoint_owners`, and `Achievements` can be observed, revealing that the majority of games cluster near lower engagement, with a long tail due to massive successes.
+    """
+)
+hist_cols = ['Price', 'Peak CCU', 'midpoint_owners', 'Achievements']
+valid_hist_cols = [col for col in hist_cols if col in cleaned_data.columns]
+
+log_x_cols = {'Peak CCU', 'midpoint_owners', 'Achievements'}
+
+if valid_hist_cols:
+    fig, axes = plt.subplots(len(valid_hist_cols), 1, figsize=(8, 4 * len(valid_hist_cols)), dpi=150)
+    if len(valid_hist_cols) == 1:
+        axes = [axes]
+
+    for i, col in enumerate(valid_hist_cols):
+        ax = axes[i]
+
+        # Adding small constant for log scale if zeros exist
+        has_zeros = (cleaned_data[col].min() == 0)
+        data_to_plot = cleaned_data[col] + (1 if has_zeros else 0)
+        use_log_x = col in log_x_cols
+
+        sns.histplot(data_to_plot, bins=40, kde=False, log_scale=(use_log_x, False), ax=ax, color='teal', edgecolor='white', linewidth=0.5, alpha=0.85)
+
+        ax.set_yscale('log')
+        ax.set_ylim(bottom=0.8)
+        ax.yaxis.set_major_formatter(ticker.EngFormatter())
+
+        if col == 'Price':
+            ax.xaxis.set_major_formatter(ticker.StrMethodFormatter('${x:,.0f}'))
+        else:
+            ax.xaxis.set_major_formatter(ticker.EngFormatter())
+
+        sns.despine(ax=ax)
+        ax.grid(True, which='major', linestyle='--', linewidth=0.6, alpha=0.5)
+        ax.grid(False, which='minor')
+        
+        axes[i].set_title(f"Log-Scale Distribution of {col}")
+        axes[i].set_xlabel(f"{col} (+1 shifted)" if (has_zeros and use_log_x) else col)
+        axes[i].set_ylabel("Count (Log)")
+
+    plt.tight_layout()
+    st.pyplot(fig)
+else:
+    st.info("Required columns for histograms are missing.")
+
+
+# ==========================================
+# C. Box Plots (Outlier Detection & Spread)
+# ==========================================
+st.header("C. Box Plots (Outlier Detection & Spread)")
+st.markdown(
+    """
+    **Interpretation:** Box plots reveal extreme outliers for `Price`, `Peak CCU`, and `DLC count`. 
+    The interquartile ranges (IQR) for these variables surround the lower end, while extreme outliers tend to be lofty values, reflecting viral hits and major platform expansions.
+    """
+)
+box_columns = ['Price', 'Peak CCU', 'DLC count']
+available_box_cols = [col for col in box_columns if col in df.columns]
+
+if available_box_cols:
+    fig, axes = plt.subplots(1, len(available_box_cols), figsize=(5 * len(available_box_cols), 5))
+    if len(available_box_cols) == 1:
+        axes = [axes]
+
+    for i, col in enumerate(available_box_cols):
+        sns.boxplot(y=df[col], ax=axes[i], color='lightcoral')
+        axes[i].set_title(f'Box Plot of {col}', fontsize=12)
+        axes[i].set_ylabel(col)
+
+    plt.tight_layout()
+    st.pyplot(fig)
+    plt.close(fig)
+else:
+    st.warning("None of the specified box plot columns are present in the dataset.")
+
+
+# ==========================================
+# D. Scatter Plots (Bivariate Relationships)
+# ==========================================
+st.header("D. Scatter Plots (Bivariate Relationships)")
+st.markdown(
+    """
+    **Interpretation:** For `Price` vs. `midpoint_owners`, points cluster around lower prices, scattering as the cost increases.
+    For `Positive` vs. `Negative` reviews, there appears to be a strong positive linear correlation between the two.
+    Therefore, games with higher engagement get reviewed more, resulting in a kind of balance between positive and negative reviews.
+    """
+)
+# 1. Price vs midpoint_owners
+if 'Price' in df.columns and 'midpoint_owners' in df.columns:
+    fig, ax = plt.subplots(figsize=(9, 6))
+
+    # Add slight random vertical litter in log10 space
+    rng = np.random.default_rng(42)
+    log_y = np.log10(df['midpoint_owners'])
+    jittered_y = 10 ** (log_y + rng.uniform(-0.08, 0.08, size=len(df)))
+
+    ax.scatter(df['Price'], jittered_y, alpha=0.15, color='teal', s=12, edgecolors='none')
+
+    ax.set_yscale('log') # Log scale recommended due to high skewness in owners
+    ax.xaxis.set_major_formatter(ticker.StrMethodFormatter('${x:,.0f}'))
+    ax.yaxis.set_major_formatter(ticker.EngFormatter())
+
+    sns.despine(ax=ax)
+    ax.grid(True, which='major', linestyle='--', linewidth=0.6, alpha=0.5)
+    ax.grid(False, which='minor')
+
+    ax.set_title('Price vs. Midpoint Owners')
+    ax.set_xlabel('Price ($)')
+    ax.set_ylabel('Midpoint Owners')
+
+    plt.tight_layout()
+    st.pyplot(fig)
+    plt.close(fig)
+else:
+    st.warning("Price or midpoint_owners column missing for scatter plot.")
+
+# 2. Positive reviews vs Negative reviews
+if 'Positive' in df.columns and 'Negative' in df.columns:
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    sns.scatterplot(data=df, x='Positive', y='Negative', alpha=0.5, ax=ax, color='purple')
+
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.xaxis.set_major_formatter(ticker.EngFormatter())
+    ax.yaxis.set_major_formatter(ticker.EngFormatter())
+    
+    ax.set_title('Positive Reviews vs. Negative Reviews', fontsize=14)
+    ax.set_xlabel('Positive Reviews')
+    ax.set_ylabel('Negative Reviews')
+
+    plt.tight_layout()
+    st.pyplot(fig)
+    plt.close(fig)
+else:
+    st.warning("Positive or Negative review columns missing for scatter plot.")
+
+
+# ==========================================
+# E. Release-Year Trend (Temporal Analysis)
+# ==========================================
+st.header("E. Temporal Analysis: Release-Year Trends")
+st.markdown(
+    """
+    **Interpretation:** By deriving the `Release Year` from the `Release date` string values, the amount of games released annually can be tracked alongside the `midpoint_owners`.
+    After doing some reasearch, it was discover that from 2012 to 1017, Steam published games through commmunity votes under Steam Greenlight.
+    However, in 2017, Steam changed this to self-publishing with Steam Direct. That is why the number of games released increases more after 2017. More on this phenomenon can be found on the [Game Developer website](https://www.gamedeveloper.com/business/the-three-ages-of-steam-distribution-and-how-it-changes-indie-dev-).
+    There are also major spikes in ownership games released before 2005, which is a year also mentioned in the Game Developer article.
+    In 2005, Steam began exdanding to third party games, after having a majority of only Valve's game releases.
+    Because their were only a handful of titles to choose from, Steam's users ownership was more concentrated. 
+    Currently, the game market is heavily saturated, with a widespread of both big name and niche indie projects to play.
+    """
+)
+st.markdown("Evaluates platform saturation (game releases per year) alongside average midpoint owners over time.")
+
+if 'Release date' in cleaned_data.columns and 'AppID' in cleaned_data.columns and 'midpoint_owners' in cleaned_data.columns:
+    # Derive Release Year variable from Release date string format ex. "Aug 20, 2023"
+    temp_df = cleaned_data.copy()
+    temp_df['Release Year'] = pd.to_datetime(temp_df['Release date'], errors='coerce').dt.year
+
+    # Filter out invalid or extreme years
+    temp_df = temp_df.dropna(subset=['Release Year'])
+    temp_df['Release Year'] = temp_df['Release Year'].astype(int)
+    temp_df = temp_df[(temp_df['Release Year'] >= 1995) & (temp_df['Release Year'] <= 2024)]
+
+    # Aggregate by Year: Count of AppIDs and Mean midpoint_owners
+    yearly_agg = temp_df.groupby('Release Year').agg(
+        Game_Count=('AppID', 'count'),
+        Mean_Owners=('midpoint_owners', 'mean')
+    ).reset_index()
+
+    fig_e, ax1 = plt.subplots(figsize=(12, 6))
+
+    # Primary Axis: Game Releases Count
+    color = 'tab:blue'
+    ax1.set_xlabel('Release Year')
+    ax1.set_ylabel('Number of Game Releases', color=color)
+    line1 = ax1.plot(yearly_agg['Release Year'], yearly_agg['Game_Count'], color=color, marker='o', linewidth=2, label='Game Releases')
+    ax1.tick_params(axis='y', labelcolor=color)
+
+    # Secondary Axis: Average Midpoint Owners
+    ax2 = ax1.twinx()
+    color = 'tab:orange'
+    ax2.set_ylabel('Average Midpoint Owners', color=color)
+    line2 = ax2.plot(yearly_agg['Release Year'], yearly_agg['Mean_Owners'], color=color, marker='s', linestyle='--', linewidth=2, label='Avg Midpoint Owners')
+    ax2.tick_params(axis='y', labelcolor=color)
+
+    plt.title("Steam Platform Saturation and Average Game Reach Over Time")
+    fig_e.tight_layout()
+    st.pyplot(fig_e)
+else:
+    st.warning("Required columns ('Release date', 'AppID', 'midpoint_owners') for temporal analysis are missing.")
+
+st.header("Final conclusions")
+st.write(
+    """
+
     """
 )
