@@ -330,8 +330,8 @@ st.write(
     """
 )
 
-# Drop known leakages, indentifiers, and non-numeric columns that aren't encoded
-drop_cols = ['AppID', 'Name', 'Release date', 'Estimated owners', 'Success_Label', 'Success', 'Primary_Genre', 'Peak CCU', 'Positive_Ratio', 'Metacritic score']
+# Drop known leakages, identifiers, and non-numeric columns that aren't encoded
+drop_cols = ['AppID', 'Name', 'Release date', 'Estimated owners', 'Success_Label', 'Success', 'Primary_Genre', 'Peak CCU', 'Positive_Ratio', 'Metacritic score', 'min_owners', 'max_owners', 'midpoint_owners', 'Positive_log', 'Negative', 'Positive_capped', 'Positive', 'Recommendations_capped', 'Recommendations', 'Recommendations_log', 'Peak CCU_log', 'Peak CCU_capped', 'Average playtime forever', 'Average playtime forever_capped', 'Average playtime forever_log', 'Average playtime two weeks', 'Median playtime forever', 'Median playtime forever_log', 'Median playtime forever_capped', 'Median playtime two weeks']
 feature_cols = [col for col in ml_data.columns if col not in drop_cols and ml_data[col].dtype in ['int64', 'float64', 'bool']]
 
 X = ml_data[feature_cols].select_dtypes(include=[np.number, 'bool']).astype(float)
@@ -395,6 +395,24 @@ st.markdown(f"- **F1-Score:** {rf_f1:.4f}")
 st.markdown(f"- **ROC-AUC:** {rf_auc:.4f}")
 st.markdown(f"- **Confusion Matrix:**\n```\n{rf_cm}\n```")
 
+st.markdown("#### 4. Top Predictors of Game Success")
+
+# Extract radnom Forest feature importances
+rf_importances = pd.DataFrame({
+    'Attribute': X.columns,
+    'Importance': rf_model.feature_importances_
+}).sort_values(by='Importance', ascending=False)
+
+rfc_impotance_dict = dict(zip(rf_importances['Attribute'], rf_importances['Importance']))
+rfc_top_15_dict = dict(zip(
+    rf_importances['Attribute'].head(15),
+    rf_importances['Importance'].head(15)
+))
+
+st.markdown("##### Random Forest: Top 15 Most Important Attributes")
+st.bar_chart(rf_importances.head(15).set_index('Attribute'))
+st.dataframe(rf_importances.head(15), use_container_width=True)
+
 # AI interpretation of machine learning metrics
 if "machine" not in st.session_state:
     st.session_state.machine = None
@@ -418,6 +436,22 @@ if st.session_state.machine is None:
         4. F1-Score: {rf_f1:.4f}
         5. ROC-AUC: {rf_auc:.4f}
         6. Confusion Matrix: {rf_cm}
+        RFC Top 15 Feature Importances:
+        "tags_Great Soundtrack":0.03827142634259271
+        "Achievements_capped":0.032546648563620086
+        "Achievements_log":0.032385427488842135
+        "Achievements":0.032092941817818195
+        "Price":0.028980537255314895
+        "Discount":0.027553649440065428
+        "DLC count_capped":0.025345838420674064
+        "DLC count":0.023591757719312403
+        "DLC count_log":0.022964711388026027
+        "tags_Classic":0.016346320302146188
+        "Mac":0.014196442086004086
+        "tags_Difficult":0.009567346396304594
+        "genre_Casual":0.00905834543812068
+        "tags_Singleplayer":0.008298006954282379
+        "tags_Atmospheric":0.008168877969165834
 
         Write out an interpretation of your results.
         """
@@ -433,12 +467,10 @@ st.write(st.session_state.machine)
 st.subheader("Evaluation of AI-generated Machine Learning Results Interpretation")
 st.write(
     """
-    As the AI assessed, the accuracy of the Random Forest is about 4 percent higher than the Logistic Regession. 
-    However, the total number of positive cases is a little over 1000 less than the number of negative cases, so accuracy isn't everything.
-    The confusion matrix breaks down the numbers, demonstrating that while the Logistic Regression model is good at correctly predicting negatives, the Random Forest Classifier catchs the vast majority of successful games.
-    Though the Random Forest is less precise, predicting more false positives, it has extremely high recall, which makes it the more balanced model.
-    While both the models have high ROC-AUC scores, the Random Forest ranks higher.
-    I agree that overall, the Random Forest Classifier is the better model, but that it might depend on what the models are being used for.
+    The AI interpreted that although the Random Forest accuracy isn't much better than the Logistic Regression *and* its it is not as precise, it has a far better recall and a slightly better ROC-AUC score, making it the more balanced model.
+    It also found that games with more content depth, atmospheric appeal, good pricing, and tags that make a wide array of gamer more likely to play are the most important things when determining a games success before release.
+    I agree with the AI that from what the RFC and LR have shown, these features appear to hold the most importance.
+    I plan to use this information in my final conclusion.
     """
 )
 
@@ -691,6 +723,10 @@ else:
 st.header("Final conclusions")
 st.write(
     """
-
+    In conclusion, while the hypothesis testing failed to reject the null hypothesis that Genre does not affect game success, the machine learning models showed that tags for Great Soundtrack, Atmospheric, Classic, Difficult, Casual, and Singleplayer held some importance when the Random Forest model predicted games success.
+    Looking at the different figures and visualization, specifically the Relase Year trends and the heatmap, it is clear that market oversaturation has made it more difficult to break out in the gaming industry.
+    Games with more Positive and even more Negative reviews tend to get recommended more, but many of those highly reviewed games are outlier blockbusters which significantly skew the data. 
+    The find that was most shocking was how important the tag of Great Soundtrack was for the machine learning model. Users seem to be looking for games they can fully immerse themselves in.
+    Gaming is an experience and developers have to take every possible aspect into consideration when creating new games.
     """
 )
