@@ -14,4 +14,4 @@ OR
 - `streamlit run app.py`
 4. The Streamlit appication should open in your browser, where you can see a version of the report
 - The AI responses will be different than my final ones due to differing sessions
-5. To see the accurate final report, simply open the pdf file in the `/report` folder
+5. To see the accurate final report, simply open the pdf file in the `\report` folder
