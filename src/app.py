@@ -23,7 +23,8 @@ llm = ChatGoogleGenerativeAI(model = "gemini-3.5-flash-lite", temperature = 0.1)
 
 # Title and introduction
 st.title("Steam Games Data Analysis")
-st.write("This dataset holds information on 125, 855 games published on Steam. I'll first be asking an initial question: What attributes of a Steam game are associated with a positive user rating (>80% positive reviews), and can they be used to predict it?")
+st.write("This dataset holds information on 125, 855 games published on Steam. I'll first be asking an initial question: What attributes of a Steam game are associated with a positive user rating (>80% positive reviews and midpoint owners greater than the median), and can they be used to predict it?")
+st.markdown("**Dataset source:** https://www.kaggle.com/datasets/fronkongames/steam-games-dataset")
 
 # Load and cache the raw data
 @st.cache_data
@@ -36,6 +37,14 @@ raw_data = load_data()
 # An overview of the first five entries in the raw dataset
 st.header("Dataset Overview")
 st.dataframe(raw_data.head(), hide_index=True)
+inital_cols = raw_data.shape[1]
+initial_rows = raw_data.shape[0]
+
+st.markdown(
+    f"""
+    **Initial Shape:** {inital_cols} columns, {initial_rows} rows
+    """
+)
 
 # A summary of the raw dataset
 raw_summary = f"""
@@ -79,60 +88,124 @@ if st.session_state.analysis is None:
 
 st.header("Exploratory Analysis")
 st.subheader("AI-generated Exploratory Analysis")
+st.markdown(
+    """
+    **Prompt:**
+    
+    You are an experienced data analyst. Perform an exploratory analysis of dataset summary, including:
+
+    1. A dataset overview
+    2. The data quality & anomalies
+    3. Key hypotheses
+    4. Recommended visualizations
+
+    For recommended visualizations, include at least a correlation heatmap across all numeric attributes, plus histograms, box plots, scatter plots and a release-year trend.
+
+    Dataset Summary:
+    raw_summary (which includes shape, columns, missing values, and basic statistics)
+
+    ---
+    """
+)
 st.write(st.session_state.analysis)
 
 st.subheader("Evaluation of AI-generated Exploratory Analysis")
 st.write(
     """
-    The AI accurately observed columns with extremely high missing rates, but its thoughts on outliers and skewednessnmay not be accurate because it cannot view the entire dataset. 
-    I must evaluate the data myself to observe what needs either transformation or removal.
-    The potential key hypotheses all deserve some exploration, as well as all the recommended figures for visualization.
-    I have chosen to do further research before committing to anything.
+    The response from the AI is somewhat accepted. 
+    It gives an accurate assessment of the the scope and size of the dataset, as well as the numbers for missing values. 
+    However, because the AI does not have access to the full dataset, while it's assumptions of skewness could be correct, the potentially skewed attributes must be reviewed by myself before further analysis.
     """
 )
+
+st.subheader("Data Cleaning")
 
 # Clean and cache data
 @st.cache_data
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
-    # Drop columns with mostly or completely missing values
-    cols_to_drop=['Movies', 'Reviews', 'Metacritic url', 'Notes', 'Website', 'Support url', 'Score rank']
+    cols_to_drop = ['Movies', 'Reviews', 'Metacritic url', 'Notes', 'Website', 'Support url', 'Score rank']
+    cols_before = df.shape[1]
     df = df.drop(columns=cols_to_drop, errors='ignore')
-    # Filter out non-games to help prevent playtime skewing due to idling software
-    non_games = 'Utilities|Software|Animation & Modeling|Design & Illustration|Web Publishing|Video Production'
+    dropped_count = cols_before - df.shape[1]
+    st.markdown(
+        f"""
+        1. Drop columns with mostly or completely missing values:
+            - Dropped {dropped_count} columns
+        """
+    )
+
+    rows_before = df.shape[0]
+    non_games = 'Utilities|Software|Animation & Modeling|Design & Illustration|Web Publishing|Video Production|Accounting|Audio Production|Game Development|Free To Play|Photo Editing'
     if 'Genres' in df.columns:
         df = df[~df['Genres'].str.contains(non_games, case=False, na=False)]
-    # Drop free-to-play games to correct the heavy right-skewedness of Price
+    dropped_count = rows_before - df.shape[0]
+    st.markdown(
+        f"""
+        2. Filter out non-games to help prevent playtime skewing due to idling software:
+            - Dropped {dropped_count} rows
+        """
+    )
+
+    rows_before = df.shape[0]
     df = df[df['Price'] > 0].copy()
-    # Calculate log-IQR bounds for Price and use those to drop outlier rows
+    dropped_count = rows_before - df.shape[0]
+    st.markdown(
+        f"""
+        3. Drop free-to-play games to correct the heavy right-skewedness of Price:
+            - Dropped {dropped_count} rows
+        """
+    )
+
+    rows_before = df.shape[0]
     log_price = np.log(df['Price'])
     Q1 = log_price.quantile(0.25)
     Q3 = log_price.quantile(0.75)
     IQR = Q3 - Q1
-
     lower_bound = np.exp(Q1 - 1.5 * IQR)
     upper_bound = np.exp(Q3 + 1.5 * IQR)
-
     df = df[(df['Price'] >= lower_bound) & (df['Price'] <= upper_bound)]
-    # Filter out dead/unplayed games
+    dropped_count = rows_before - df.shape[0]
+    st.markdown(
+        f"""
+        4. Calculate log-IQR bounds for Price and use those to drop outlier rows:
+            - Dropped {dropped_count} rows
+        """
+    )
+
+    rows_before = df.shape[0]
     df = df[(df['Peak CCU'] > 0) & (df['Positive'] + df['Negative'] >= 10)]
-    # Handle extremely right-skewed columns like Peak CCU, Positive, Recommendations, DLC count, Achievements, and Average playtime forever
+    dropped_count = rows_before - df.shape[0]
+    st.markdown(
+        f"""
+        5. Filter out dead/unplayed games:
+            - Dropped {dropped_count} rows
+        """
+    )
+    
+    cols_before = df.shape[1]
     skewed_cols = ['Peak CCU', 'Positive', 'Recommendations', 'DLC count', 'Achievements', 'Average playtime forever']
     df[skewed_cols] = df[skewed_cols].fillna(0).clip(lower=0)
     for col in skewed_cols:
         df[f'{col}_log'] = np.log1p(df[col])
         upper_limit = df[col].quantile(0.99)
         df[f'{col}_capped'] = df[col].clip(upper=upper_limit)
-    # Replace 0 Metacritic scores with NaN
+    added_count = df.shape[1] - cols_before
+    st.markdown(
+        f"""
+        6. Handle extremely right-skewed columns like Peak CCU, Positive, Recommendations, DLC count, Achievements, and Average playtime forever by calculating _log and _capped values:
+            - Added {added_count} columns
+        """
+    )
+
     if 'Metacritic score' in df.columns:
         df['Metacritic score'] = df['Metacritic score'].replace(0, np.nan)
-    # Drop rows with >50% missing values
-    df = df.dropna(thresh=df.shape[1] * 0.5)
-    # Handle duplicates by using AppID alongside Name to differentiate
-    if "AppID" in df.columns:
-        df = df.drop_duplicates(subset=["AppID"])
-    # Drop exact duplicates if there are any
-    df = df.drop_duplicates()
-    # Parse string lists for tags and genres into dummy variables
+    st.markdown(
+        f"""
+        7. Replace 0 Metacritic scores with NaN because those scores are mostly missing and not literally 0
+        """
+    )
+
+    cols_before = df.shape[1]
     if "Genres" in df.columns:
         genres_dummies = df["Genres"].str.get_dummies(sep=",")
         genres_dummies = genres_dummies.add_prefix("genre_")
@@ -141,32 +214,42 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
             tags_dummies = df["Tags"].str.get_dummies(sep=",")
             tags_dummies = tags_dummies.add_prefix("tags_")
             df = pd.concat([df, tags_dummies], axis=1)
-    # Map estimated owner ranges to their midpoints, lower bounds, and upper bounds to make them usable numbers
+    added_count = df.shape[1] - cols_before
+    st.markdown(
+        f"""
+        8. Parse string lists for tags and genres into dummy variables:
+            - Added {added_count} columns
+        """
+    )
+
+    cols_before = df.shape[1]
     if "Estimated owners" in df.columns:
         bounds = df['Estimated owners'].str.replace(',', '').str.split(' - ', expand=True).astype(float)
         df['min_owners'] = bounds[0]
         df['max_owners'] = bounds[1]
         df['midpoint_owners'] = (bounds[0] + bounds[1]) / 2
+    added_count = df.shape[1] - cols_before
+    st.markdown(
+        f"""
+        9. Map estimated owner ranges to their midpoints, lower bounds, and upper bounds to make them usable numbers:
+            - Added {added_count} columns
+        """
+    )
+
+    final_cols = df.shape[1]
+    final_rows = df.shape[0]
+
+    st.markdown(
+        f"""
+        **Final Shape:** {final_cols} columns, {final_rows} rows
+        """
+    )
+
     return df
 
 cleaned_data = clean_data(raw_data)
 st.subheader("Cleaned Dataset Overview")
 st.dataframe(cleaned_data.head())
-
-st.subheader("Data Cleaning")
-st.write(
-    """
-    To clean the dataset, columns with mostly or completely missing values were dropped. 
-    Entries with genres that are non-game related, like Utilities, Software, Animation & Modeling, Design & Illustration, Web Publishing, and Video Production, were removed. 
-    Price outliers were handled using the log-IQR method after dropping all the free-to-play games.
-    The absence of Peak CCU or a lack of reviews was utilized to prune out dead or unplayed games. 
-    All the values that were heavily right-skewed, such as Peak CCU, Positive, Recommendations, DLC count, Achievements, Average playtime forever, were handled vis log transformtion so the outliers didn't dominate any weights. 
-    Metacritic scores of 0 were replaced with NaN because they are most likely just unrated games and not true zeros. 
-    Rows with more that 50% missing values and duplicates were dropped.
-    The string lists for tags and genres were parsed into dummy variables.
-    The estimated owners ranges were mapped to usable midpoint, max, and min numerical values.
-    """
-)
 
 # A summary of the cleaned dataset
 clean_summary = f"""
@@ -211,15 +294,35 @@ if st.session_state.overview is None:
     st.session_state.overview = response
 
 st.subheader("AI-generated Clean Dataset Overview")
+st.markdown(
+    """
+    **Prompt:**
+
+    You are an experienced data analyst. Perform a dataset overview of my now cleaned dataset, including:
+
+    1. A dataset overview
+    2. The data quality & remaining anomalies (if any)
+    3. Recommended visualizations: specify exactly what to plot (all exact column names), and why.
+
+    For recommended visualizations, include at least a correlation heatmap across all numeric attributes, plus histograms, box plots, scatter plots and a release-year trend.
+
+    Raw Dataset Summary:
+    raw_summary (which includes shape, columns, missing values, and basic statistics)
+
+    Clean Dataset Summary:
+    clean_summary (which includes shape, columns, missing values, and basic statistics)
+
+    ---
+    """
+)
 st.write(st.session_state.overview)
 
 st.subheader("Evaluation of AI-generated Clean Dataset Overview")
 st.write(
     """
-    Cleaning the data appears to have significatly cut down the number of entries left for analysis. 
-    The AI has pointed out that there are still a few anomalies after cleaning, but they shouldn't affect my analysis moving forward. 
-    The recommended plots are similar to the ones from the exploratory analysis, which will be used later in the report.
-    I have chosen to use the AI recommendations for visualization to further my analysis.
+    The response from the AI is somewhat accepted.
+    As previously mentioned, the AI cannot see the entire dataset.
+    The desicion has been made to use the recommended visualizations.
     """
 )
 
@@ -314,6 +417,30 @@ else:
     )
 
 st.markdown(interpretation)
+
+# Visualize using a group-by table for success rate by genre
+st.markdown("#### 5. Visualize")
+st.markdown("##### Success Rate by Primary Genre")
+
+genre_success_df = (
+    h_data.groupby("Primary_Genre")["Success"]
+    .agg(
+        Total_Games="count",
+        Successful_Games="sum",
+        Success_Rate="mean"
+    )
+    .reset_index()
+)
+
+genre_success_df["Success_Rate"] = (
+    genre_success_df["Success_Rate"] * 100
+).round(2)
+
+genre_success_df = genre_success_df.sort_values(
+    by="Total_Games", ascending=False
+)
+
+st.dataframe(genre_success_df, use_container_width=True)
 
 st.header("Machine Learning: Predicting Game Success")
 st.subheader("Logistic Regression & Random Forest Classifier")
@@ -437,21 +564,21 @@ if st.session_state.machine is None:
         5. ROC-AUC: {rf_auc:.4f}
         6. Confusion Matrix: {rf_cm}
         RFC Top 15 Feature Importances:
-        "tags_Great Soundtrack":0.03827142634259271
-        "Achievements_capped":0.032546648563620086
-        "Achievements_log":0.032385427488842135
-        "Achievements":0.032092941817818195
-        "Price":0.028980537255314895
-        "Discount":0.027553649440065428
-        "DLC count_capped":0.025345838420674064
-        "DLC count":0.023591757719312403
-        "DLC count_log":0.022964711388026027
-        "tags_Classic":0.016346320302146188
-        "Mac":0.014196442086004086
-        "tags_Difficult":0.009567346396304594
-        "genre_Casual":0.00905834543812068
-        "tags_Singleplayer":0.008298006954282379
-        "tags_Atmospheric":0.008168877969165834
+        tags_Great Soundtrack: 0.0372824303944819
+        Achievements_capped: 0.0318586068918036
+        Achievements: 0.03124936364809496
+        Achievements_log: 0.03079540182503934
+        Price: 0.03005110046046844
+        Discount: 0.029259039486113383
+        DLC count_log: 0.02537775581746523
+        DLC count_capped: 0.024995888964790075
+        DLC count: 0.024354070323304153
+        tags_Classic: 0.01680054275085715
+        Mac	0.014192931742985948
+        tags_Multiplayer: 0.009829037411888238
+        tags_Difficult: 0.009223258773100358
+        tags_Singleplayer: 0.00858222821276252
+        tags_Story Rich: 0.008362619957130307
 
         Write out an interpretation of your results.
         """
@@ -463,14 +590,62 @@ if st.session_state.machine is None:
     st.session_state.machine = response
 
 st.subheader("AI-generated Machine Learning Results Interpretation")
+st.markdown(
+    """
+    **Prompt:**
+    
+    You are a senior data scientist with extensive machine learning knowledge. You used a random forest classifier to predict the success of video games using binary (1 for Positive, 0 for not). Logistic regression as the basic baseline.:
+    
+    Logistic Regression metrics:
+
+    1. Accuracy: lr_acc
+    2. Precision: lr_prec
+    3. Recall: lr_rec
+    4. F1-Score: lr_f1
+    5. ROC-AUC: lr_auc
+    6. Confusion Matrix: lr_cm
+
+    Random Forest Classifier metrics:
+
+    1. Accuracy: rf_acc
+    2. Precision: rf_prec
+    3. Recall: rf_rec
+    4. F1-Score: rf_f1
+    5. ROC-AUC: rf_auc
+    6. Confusion Matrix: rf_cm
+
+    RFC Top 15 Feature Importances:
+
+    1. tags_Great Soundtrack: 0.0372824303944819
+    2. Achievements_capped: 0.0318586068918036
+    3. Achievements: 0.03124936364809496
+    4. Achievements_log: 0.03079540182503934
+    5. Price: 0.03005110046046844
+    6. Discount: 0.029259039486113383
+    7. DLC count_log: 0.02537775581746523
+    8. DLC count_capped: 0.024995888964790075
+    9. DLC count: 0.024354070323304153
+    10. tags_Classic: 0.01680054275085715
+    11. Mac	0.014192931742985948
+    12. tags_Multiplayer: 0.009829037411888238
+    13. tags_Difficult: 0.009223258773100358
+    14. tags_Singleplayer: 0.00858222821276252
+    15. tags_Story Rich: 0.008362619957130307
+
+    Write out an interpretation of your results.
+
+    ---
+    """
+)
 st.write(st.session_state.machine)
 st.subheader("Evaluation of AI-generated Machine Learning Results Interpretation")
 st.write(
     """
-    The AI interpreted that although the Random Forest accuracy isn't much better than the Logistic Regression *and* its it is not as precise, it has a far better recall and a slightly better ROC-AUC score, making it the more balanced model.
-    It also found that games with more content depth, atmospheric appeal, good pricing, and tags that make a wide array of gamer more likely to play are the most important things when determining a games success before release.
-    I agree with the AI that from what the RFC and LR have shown, these features appear to hold the most importance.
-    I plan to use this information in my final conclusion.
+    The response from the AI is accepted.
+    Both models have there own uses.
+    The Logistic Regression has less false positives, making it more prescise.
+    The Random Forest Classifer is better at actually catching successful games, with better recall.
+    The feature importances also make it clear what determines a successful game.
     """
 )
 
@@ -579,25 +754,25 @@ else:
 st.header("C. Box Plots (Outlier Detection & Spread)")
 st.markdown(
     """
-    **Interpretation:** Box plots reveal extreme outliers for `Price`, `Peak CCU`, and `DLC count`. 
+    **Interpretation:** Box plots reveal extreme outliers for `Price`, `Peak CCU_log`, and `DLC count_log`. 
     The interquartile ranges (IQR) for these variables surround the lower end, while extreme outliers tend to be lofty values, reflecting viral hits and major platform expansions.
     """
 )
-box_columns = ['Price', 'Peak CCU', 'DLC count']
+box_columns = ['Price', 'Peak CCU_log', 'DLC count_log']
 available_box_cols = [col for col in box_columns if col in df.columns]
 
 if available_box_cols:
-    fig, axes = plt.subplots(1, len(available_box_cols), figsize=(5 * len(available_box_cols), 5))
+    fig, axes = plt.subplots(1, len(available_box_cols), figsize=(7 * len(available_box_cols), 8), dpi=120)
     if len(available_box_cols) == 1:
         axes = [axes]
 
     for i, col in enumerate(available_box_cols):
-        sns.boxplot(y=df[col], ax=axes[i], color='lightcoral')
+        sns.boxplot(y=df[col], ax=axes[i], color='lightcoral', width=0.45)
         axes[i].set_title(f'Box Plot of {col}', fontsize=12)
         axes[i].set_ylabel(col)
 
-    plt.tight_layout()
-    st.pyplot(fig)
+    plt.tight_layout(pad=2.0)
+    st.pyplot(fig, use_container_width=True)
     plt.close(fig)
 else:
     st.warning("None of the specified box plot columns are present in the dataset.")
@@ -672,7 +847,7 @@ st.header("E. Temporal Analysis: Release-Year Trends")
 st.markdown(
     """
     **Interpretation:** By deriving the `Release Year` from the `Release date` string values, the amount of games released annually can be tracked alongside the `midpoint_owners`.
-    After doing some reasearch, it was discover that from 2012 to 1017, Steam published games through commmunity votes under Steam Greenlight.
+    After doing some reasearch, it was discover that from 2012 to 2017, Steam published games through commmunity votes under Steam Greenlight.
     However, in 2017, Steam changed this to self-publishing with Steam Direct. That is why the number of games released increases more after 2017. More on this phenomenon can be found on the [Game Developer website](https://www.gamedeveloper.com/business/the-three-ages-of-steam-distribution-and-how-it-changes-indie-dev-).
     There are also major spikes in ownership games released before 2005, which is a year also mentioned in the Game Developer article.
     In 2005, Steam began exdanding to third party games, after having a majority of only Valve's game releases.
@@ -720,10 +895,12 @@ if 'Release date' in cleaned_data.columns and 'AppID' in cleaned_data.columns an
 else:
     st.warning("Required columns ('Release date', 'AppID', 'midpoint_owners') for temporal analysis are missing.")
 
-st.header("Final conclusions")
+st.write("Langchain AI was used to generate code for parts of all sections, then was tweaked as needed.")
+
+st.header("Final Conclusions")
 st.write(
     """
-    In conclusion, while the hypothesis testing failed to reject the null hypothesis that Genre does not affect game success, the machine learning models showed that tags for Great Soundtrack, Atmospheric, Classic, Difficult, Casual, and Singleplayer held some importance when the Random Forest model predicted games success.
+    In conclusion, the hypothesis test rejected the null hypothesis, meaning that genre is significantly associated with game success. The machine learning random forest classifier showed that tags for Great Soundtrack, Atmospheric, Classic, Difficult, Casual, and Singleplayer held some importance when the Random Forest model predicted games success.
     Looking at the different figures and visualization, specifically the Relase Year trends and the heatmap, it is clear that market oversaturation has made it more difficult to break out in the gaming industry.
     Games with more Positive and even more Negative reviews tend to get recommended more, but many of those highly reviewed games are outlier blockbusters which significantly skew the data. 
     The find that was most shocking was how important the tag of Great Soundtrack was for the machine learning model. Users seem to be looking for games they can fully immerse themselves in.
